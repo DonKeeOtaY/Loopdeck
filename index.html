@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Deck</title>
+<style>
+  /* Layout: player on the left, track list on the right; stacks on narrow screens. */
+  :root {
+    --bg: #f3f2ef; --panel: #ffffff; --fg: #1b1b1f; --muted: #6b6b73;
+    --line: #dcdad4; --accent: #d6382b; --accent-fg: #ffffff; --active: #fbe9e6;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --panel: #1d1d21; --fg: #ececf0; --muted: #9a9aa5;
+      --line: #2e2e35; --accent: #ff5a4a; --accent-fg: #141416; --active: #2b1d1c; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); min-height: 100vh; padding: 24px 16px; }
+  .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font-size: 1.3rem; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type=text] { flex: 1 1 280px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); font: inherit; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--fg); padding: 9px 14px; border-radius: 8px; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+  button:focus-visible, input:focus-visible, .track:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 800px) { .main { grid-template-columns: minmax(0, 1fr); } }
+  .stage { display: grid; gap: 14px; }
+  .video { aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; max-width: 100%; }
+  .video iframe, .video > div { width: 100%; height: 100%; }
+  .now { display: grid; gap: 2px; min-width: 0; }
+  .now .label { font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .now .title { font-size: 1.1rem; font-weight: 600; overflow-wrap: anywhere; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .loop { display: inline-flex; gap: 8px; align-items: center; padding: 9px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; user-select: none; }
+  .loop input { accent-color: var(--accent); }
+  .count { font: 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+  .list { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 70vh; overflow-y: auto; }
+  .track { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .track:last-child { border-bottom: 0; }
+  .track:hover { background: var(--active); }
+  .track.active { background: var(--active); box-shadow: inset 3px 0 0 var(--accent); }
+  .track .n { font: 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track.active .n { color: var(--accent); }
+  .track .t { overflow-wrap: anywhere; }
+  .track.bad .t { color: var(--muted); text-decoration: line-through; }
+  .msg { color: var(--muted); font-size: 14px; min-height: 1.4em; }
+  .msg.err { color: var(--accent); }
+  .hint { font-size: 13px; color: var(--muted); }
+  kbd { font: 12px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Loop <span>Deck</span></h1>
+
+  <form id="load">
+    <input type="text" id="url" placeholder="Paste a YouTube playlist link or ID (PL…)" aria-label="Playlist URL or ID" autocomplete="off">
+    <button class="primary" type="submit">Load playlist</button>
+  </form>
+  <div class="msg" id="msg">Paste a public or unlisted playlist to begin.</div>
+
+  <div class="main">
+    <div class="stage">
+      <div class="video"><div id="player"></div></div>
+      <div class="now">
+        <span class="label" id="posLabel">Not playing</span>
+        <span class="title" id="title">Nothing loaded</span>
+      </div>
+      <div class="controls">
+        <button id="prev" type="button">◀ Previous</button>
+        <button id="toggle" type="button">Pause</button>
+        <button id="next" type="button" class="primary">Next ▶</button>
+        <label class="loop"><input type="checkbox" id="loopBox" checked> Loop this track</label>
+        <span class="count" id="count">loops 0</span>
+      </div>
+      <div class="hint">Shortcuts: <kbd>N</kbd> next · <kbd>P</kbd> previous · <kbd>Space</kbd> play/pause · <kbd>L</kbd> toggle loop</div>
+    </div>
+    <div class="list" id="list" role="list" aria-label="Playlist tracks"></div>
+  </div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var player = null, ids = [], titles = [], bad = {}, idx = 0, loops = 0, ready = false;
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
+  function say(t, err) { $('msg').textContent = t; $('msg').className = 'msg' + (err ? ' err' : ''); }
+
+  function parseList(s) {
+    s = (s || '').trim();
+    var m = s.match(/[?&]list=([A-Za-z0-9_-]+)/);
+    if (m) return m[1];
+    return /^[A-Za-z0-9_-]{10,}$/.test(s) ? s : null;
+  }
+
+  var apiReady = false;
+  window.onYouTubeIframeAPIReady = function () {
+    apiReady = true;
+    var saved = store('loopdeck.list');
+    if (saved) { $('url').value = saved; }
+  };
+
+  function loadPlaylist(listId) {
+    if (!apiReady) { say('YouTube player is still loading. Try again in a second.', true); return; }
+    if (player) { try { player.destroy(); } catch (e) {} player = null; }
+    var holder = document.querySelector('.video');
+    holder.innerHTML = '<div id="player"></div>';
+    ids = []; titles = []; bad = {}; idx = 0; loops = 0; ready = false;
+    renderList(); updateNow();
+    say('Loading playlist…');
+    player = new YT.Player('player', {
+      width: '100%', height: '100%',
+      playerVars: { listType: 'playlist', list: listId, playsinline: 1, rel: 0, origin: location.origin.indexOf('http') === 0 ? location.origin : undefined },
+      events: { onReady: onReady, onStateChange: onState, onError: onError }
+    });
+  }
+
+  function onReady() {
+    var tries = 0;
+    (function poll() {
+      var list = null;
+      try { list = player.getPlaylist(); } catch (e) {}
+      if (list && list.length) {
+        ids = list; titles = new Array(ids.length);
+        ready = true;
+        say(ids.length + ' tracks. Looping the current track until you pick another.');
+        renderList(); fetchTitles();
+        play(0);
+      } else if (++tries < 30) {
+        setTimeout(poll, 300);
+      } else {
+        say('Could not read that playlist. Check that it is public or unlisted.', true);
+      }
+    })();
+  }
+
+  function play(i) {
+    if (!ready || !ids.length) return;
+    idx = (i + ids.length) % ids.length;
+    loops = 0;
+    player.loadVideoById(ids[idx]);
+    renderList(); updateNow();
+  }
+
+  function onState(e) {
+    if (!ready) return;
+    var S = YT.PlayerState;
+    if (e.data === S.ENDED) {
+      if ($('loopBox').checked) { loops++; updateCount(); player.seekTo(0, true); player.playVideo(); }
+      else play(idx + 1);
+    }
+    if (e.data === S.PLAYING) {
+      $('toggle').textContent = 'Pause';
+      try { var t = player.getVideoData().title; if (t && !titles[idx]) { titles[idx] = t; renderList(); } } catch (x) {}
+      updateNow();
+    }
+    if (e.data === S.PAUSED) $('toggle').textContent = 'Play';
+  }
+
+  function onError(e) {
+    if (!ready) { say('Could not load that playlist (error ' + e.data + ').', true); return; }
+    bad[idx] = true; renderList();
+    var good = ids.length - Object.keys(bad).length;
+    if (good <= 0) { say('None of these videos can be played here.', true); return; }
+    say('Track ' + (idx + 1) + ' cannot be embedded. Skipping.', true);
+    setTimeout(function () { play(idx + 1); }, 1200);
+  }
+
+  function fetchTitles() {
+    var i = 0, active = 0, MAX = 4;
+    (function next() {
+      while (active < MAX && i < ids.length) {
+        (function (n) {
+          if (titles[n]) return;
+          active++;
+          fetch('https://noembed.com/embed?url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + ids[n]))
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.title) { titles[n] = d.title; renderList(); if (n === idx) updateNow(); } })
+            .catch(function () {})
+            .then(function () { active--; next(); });
+        })(i++);
+      }
+    })();
+  }
+
+  function renderList() {
+    var el = $('list');
+    el.innerHTML = '';
+    ids.forEach(function (id, n) {
+      var d = document.createElement('div');
+      d.className = 'track' + (n === idx ? ' active' : '') + (bad[n] ? ' bad' : '');
+      d.tabIndex = 0; d.setAttribute('role', 'listitem');
+      var a = document.createElement('span'); a.className = 'n'; a.textContent = n === idx ? '▶' : String(n + 1);
+      var b = document.createElement('span'); b.className = 't'; b.textContent = titles[n] || ('Video ' + id);
+      d.appendChild(a); d.appendChild(b);
+      d.onclick = function () { play(n); };
+      d.onkeydown = function (ev) { if (ev.key === 'Enter') play(n); };
+      el.appendChild(d);
+    });
+    var act = el.querySelector('.active');
+    if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+  }
+
+  function updateNow() {
+    if (!ids.length) { $('posLabel').textContent = 'Not playing'; $('title').textContent = 'Nothing loaded'; updateCount(); return; }
+    $('posLabel').textContent = 'Track ' + (idx + 1) + ' of ' + ids.length;
+    $('title').textContent = titles[idx] || ('Video ' + ids[idx]);
+    updateCount();
+  }
+  function updateCount() { $('count').textContent = 'loops ' + loops; }
+
+  $('load').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var id = parseList($('url').value);
+    if (!id) { say('That does not look like a playlist link. It should contain list=…', true); return; }
+    store('loopdeck.list', $('url').value.trim());
+    loadPlaylist(id);
+  });
+  $('next').onclick = function () { play(idx + 1); };
+  $('prev').onclick = function () { play(idx - 1); };
+  $('toggle').onclick = function () {
+    if (!player || !ready) return;
+    var s = player.getPlayerState();
+    if (s === YT.PlayerState.PLAYING) player.pauseVideo(); else player.playVideo();
+  };
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key.toLowerCase();
+    if (k === 'n') play(idx + 1);
+    else if (k === 'p') play(idx - 1);
+    else if (k === 'l') $('loopBox').checked = !$('loopBox').checked;
+    else if (k === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); $('toggle').click(); }
+  });
+})();
+</script>
+</body>
+</html>
